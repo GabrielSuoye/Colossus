@@ -1,18 +1,31 @@
-import os
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import List
 from fastapi import FastAPI, Depends, HTTPException, status
 from pydantic import BaseModel
 from contextlib import asynccontextmanager
-from sqlalchemy.engine import result
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
-from sqlalchemy import String, Text, DateTime, false, select
+from sqlalchemy import String, Text, DateTime, select
+from crypto_vault import CryptoVault
+from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import Field
+
 
 DATABASE_URL = "sqlite+aiosqlite:///./c2_matrix.db"
 
 engine = create_async_engine(DATABASE_URL, echo=False)
 AsyncSessionLocal = async_sessionmaker(bind=engine, expire_on_commit=False)
+
+
+class Settings(BaseSettings):
+    # Field(default=...) tells Pyright it is safe to initialize without arguments
+    colossus_shared_key: str = Field(default="placeholder_key_if_env_is_missing")
+
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
+
+settings = Settings()
+vault = CryptoVault(settings.colossus_shared_key)
 
 
 class Base(DeclarativeBase):
@@ -23,10 +36,9 @@ class Base(DeclarativeBase):
 class Agent(Base):
     __tablename__ = "agents"
 
-    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     client_id: Mapped[str] = mapped_column(String(100), primary_key=True)
     hostname: Mapped[str] = mapped_column(String(100))
-    registered_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    registered_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now(UTC))
 
 
 # Encrypted Log Dump Table
@@ -37,7 +49,8 @@ class EncryptedTelemetry(Base):
     client_id: Mapped[str] = mapped_column(String(100), index=True)
     timestamp: Mapped[datetime] = mapped_column(DateTime)
     encrypted_data: Mapped[str] = mapped_column(Text)
-    received_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    received_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now(UTC))
 
 
 # Dependency to yield database sessions to endpoints cleanly
@@ -76,11 +89,13 @@ async def lifespan(app):
     yield
 
 
-app = FastAPI(title="Colossus Command & Control System", version="1.0.0")
+app = FastAPI(
+    title="Colossus Command & Control System", version="1.0.0", lifespan=lifespan
+)
 
 
 # Agent Node Registration
-@app.post("api/v1/agent/register", status_code=status.HTTP_201_CREATED)
+@app.post("/api/v1/agent/register", status_code=status.HTTP_201_CREATED)
 async def register_agent(payload: RegisterSchema, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(Agent).where(Agent.client_id == payload.client_id))
     existing_agent = result.scalar_one_or_none()
@@ -98,7 +113,7 @@ async def register_agent(payload: RegisterSchema, db: AsyncSession = Depends(get
 
 
 # Secure Inbound Data Ingestion
-@app.post("api/v1/agent/telemetry", status_code=status.HTTP_202_ACCEPTED)
+@app.post("/api/v1/agent/telemetry", status_code=status.HTTP_202_ACCEPTED)
 async def accept_telemetry(
     payload: TelemetrySchema, db: AsyncSession = Depends(get_db)
 ):
@@ -122,10 +137,25 @@ async def accept_telemetry(
 
 
 # Operational Monitoring Dashboard Data Source
-@app.get("api/v1/dashbaord/logs", response_model=List[TelemetryResponse])
+@app.get("/api/v1/dashbaord/logs", response_model=List[TelemetryResponse])
 async def get_dashboard_logs(db: AsyncSession = Depends(get_db)):
     result = await db.execute(
         select(EncryptedTelemetry).order_by(EncryptedTelemetry.received_at.desc())
     )
-    logs = result.scalars().all()
-    return logs
+    records = result.scalars().all()
+
+    decrypted_report = []
+    for record in records:
+        clear_text = vault.decrypt_string(record.encrypted_data)
+
+        decrypted_report.append(
+            {
+                "id": record.id,
+                "client_id": record.client_id,
+                "timestamp": record.timestamp,
+                "encrypted_data": clear_text,
+                "received_at": record.received_at,
+            }
+        )
+
+    return decrypted_report
