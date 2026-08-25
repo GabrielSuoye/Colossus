@@ -1,6 +1,6 @@
 from datetime import UTC, datetime
 from typing import List
-from fastapi import FastAPI, Depends, HTTPException, status
+from fastapi import FastAPI, Depends, HTTPException, status, Header
 from pydantic import BaseModel
 from contextlib import asynccontextmanager
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
@@ -20,6 +20,7 @@ AsyncSessionLocal = async_sessionmaker(bind=engine, expire_on_commit=False)
 class Settings(BaseSettings):
     # Field(default=...) tells Pyright it is safe to initialize without arguments
     colossus_shared_key: str = Field(default="placeholder_key_if_env_is_missing")
+    argus_api_token: str = Field(default="placeholder_key_if_env_is_missing")
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
@@ -59,6 +60,15 @@ async def get_db():
         yield session
 
 
+async def verify_api_token(x_argus_token: str = Header(None)):
+    """Enforces token checking on inbound network streams."""
+    if x_argus_token != settings.argus_api_token:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access Denied: Invalid security signature token.",
+        )
+
+
 class RegisterSchema(BaseModel):
     client_id: str
     hostname: str
@@ -95,7 +105,11 @@ app = FastAPI(
 
 
 # Agent Node Registration
-@app.post("/api/v1/agent/register", status_code=status.HTTP_201_CREATED)
+@app.post(
+    "/api/v1/agent/register",
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(verify_api_token)],
+)
 async def register_agent(payload: RegisterSchema, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(Agent).where(Agent.client_id == payload.client_id))
     existing_agent = result.scalar_one_or_none()
@@ -113,7 +127,11 @@ async def register_agent(payload: RegisterSchema, db: AsyncSession = Depends(get
 
 
 # Secure Inbound Data Ingestion
-@app.post("/api/v1/agent/telemetry", status_code=status.HTTP_202_ACCEPTED)
+@app.post(
+    "/api/v1/agent/telemetry",
+    status_code=status.HTTP_202_ACCEPTED,
+    dependencies=[Depends(verify_api_token)],
+)
 async def accept_telemetry(
     payload: TelemetrySchema, db: AsyncSession = Depends(get_db)
 ):

