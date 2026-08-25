@@ -155,7 +155,7 @@ async def accept_telemetry(
 
 
 # Operational Monitoring Dashboard Data Source
-@app.get("/api/v1/dashbaord/logs", response_model=List[TelemetryResponse])
+@app.get("/api/v1/dashboard/logs", response_model=List[TelemetryResponse])
 async def get_dashboard_logs(db: AsyncSession = Depends(get_db)):
     result = await db.execute(
         select(EncryptedTelemetry).order_by(EncryptedTelemetry.received_at.desc())
