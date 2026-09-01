@@ -126,6 +126,18 @@ async def register_agent(payload: RegisterSchema, db: AsyncSession = Depends(get
     return {"Status": "registered", "message": "New client agent validated and active."}
 
 
+# Fetch registered agents endpoint
+@app.get(
+    "/api/v1/dashboard/agents",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(verify_api_token)],
+)
+async def get_registered_agents(db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(Agent).order_by(Agent.registered_at.desc()))
+    agents = result.scalars().all()
+    return agents
+
+
 # Secure Inbound Data Ingestion
 @app.post(
     "/api/v1/agent/telemetry",
